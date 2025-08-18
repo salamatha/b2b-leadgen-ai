@@ -1,1 +1,21 @@
-{}
+import { supabase } from "./supabase.ts";
+
+export async function getUserSession(userId: string) {
+  const { data, error } = await supabase
+    .from("linkedin_sessions")
+    .select("session_json, updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.session_json || null;
+}
+
+export async function saveUserSession(userId: string, sessionJson: string) {
+  const { error } = await supabase
+    .from("linkedin_sessions")
+    .upsert({ user_id: userId, session_json: sessionJson })
+    .select("user_id")
+    .maybeSingle();
+  if (error) throw error;
+  return true;
+}

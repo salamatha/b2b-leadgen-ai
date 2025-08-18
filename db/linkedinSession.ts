@@ -7,6 +7,7 @@ export async function getUserSession(userId: string): Promise<string | null> {
     .eq("user_id", userId)
     .maybeSingle();
   if (error) { console.error("getUserSession error:", error.message); return null; }
+  // return a stringified storageState (so callers can JSON.parse)
   return data?.storage_state ? JSON.stringify(data.storage_state) : null;
 }
 
@@ -22,5 +23,3 @@ export async function deleteUserSession(userId: string) {
   const { error } = await supabase.from("linkedin_sessions").delete().eq("user_id", userId);
   if (error) console.error("deleteUserSession error:", error.message);
 }
-
-

@@ -1,23 +1,68 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useAuth } from "../lib/auth";
+import { useEffect, useState } from "react";
+
+const publicNav = [
+  { href: "/", label: "Home" },
+  { href: "/services", label: "Services" },
+  { href: "/about", label: "About" },
+  { href: "/pricing", label: "Pricing" },
+];
 
 function isPrivatePath(pathname: string) {
   return pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/agents";
 }
 
 export default function Header() {
-  const { authed, signOut } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setAuthed(!!localStorage.getItem("token"));
+  }, []);
+
+  const handleSignOut = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("userId");
+    window.location.href = "/";
+  };
+
+  // Avoid hydration mismatch: render a neutral header until mounted
+  if (!mounted) {
+    return (
+      <header className="border-b bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+        <div className="container flex items-center justify-between py-3">
+          <span className="font-serif text-xl text-brand-900">B2B Leadgen AI</span>
+          <div className="h-8 w-32" />
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="border-b bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container flex items-center justify-between py-3">
         <Link href="/" className="font-serif text-xl text-brand-900">B2B Leadgen AI</Link>
 
-        <div className="flex items-center gap-3">
-          {authed && <Link href="/agents" className="text-sm text-slate-700 hover:text-brand-900">Agents</Link>}
+        {!isPrivatePath(router.pathname) && (
+          <nav className="hidden md:flex items-center gap-5 text-sm">
+            {publicNav.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                className={`hover:text-brand-900 ${
+                  router.pathname === n.href ? "text-brand-900" : "text-slate-700"
+                }`}
+              >
+                {n.label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
+        <div className="flex items-center gap-3">
           {!authed ? (
             <>
               <Link href="/auth/signin" className="btn btn-secondary">Sign in</Link>
@@ -28,7 +73,7 @@ export default function Header() {
               {!isPrivatePath(router.pathname) && (
                 <Link href="/dashboard" className="btn btn-secondary">Dashboard</Link>
               )}
-              <button onClick={signOut} className="btn btn-primary">Sign out</button>
+              <button onClick={handleSignOut} className="btn btn-primary">Sign out</button>
             </>
           )}
         </div>

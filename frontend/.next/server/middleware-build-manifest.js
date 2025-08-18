@@ -24,11 +24,6 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/agents": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/agents.js"
-    ],
     "/auth/signin": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
@@ -38,6 +33,16 @@ self.__BUILD_MANIFEST = {
       "static/chunks/webpack.js",
       "static/chunks/main.js",
       "static/chunks/pages/dashboard.js"
+    ],
+    "/dashboard/outreach": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/dashboard/outreach.js"
+    ],
+    "/dashboard/settings": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/dashboard/settings.js"
     ]
   },
   "ampFirstPages": []

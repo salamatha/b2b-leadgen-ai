@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect } from "react";
-import { useAuth } from "../lib/auth";
+import { useEffect, useState } from "react";
 
 function isPrivatePath(pathname: string) {
   return pathname === "/dashboard"
@@ -18,14 +17,24 @@ const items = [
 
 export default function DashNav() {
   const router = useRouter();
-  const { authed } = useAuth();
+  const [mounted, setMounted] = useState(false);
+  const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
-    if (!authed && isPrivatePath(router.pathname)) {
+    setMounted(true);
+    setAuthed(!!localStorage.getItem("token"));
+  }, []);
+
+  useEffect(() => {
+    if (mounted && !authed && isPrivatePath(router.pathname)) {
       router.replace("/auth/signin");
     }
-  }, [authed, router]);
+  }, [mounted, authed, router.pathname, router]);
 
+  // Avoid hydration mismatch: render nothing until mounted
+  if (!mounted) return null;
+
+  // Show sidebar only on private routes and when logged in
   if (!authed || !isPrivatePath(router.pathname)) return null;
 
   return (
@@ -37,7 +46,9 @@ export default function DashNav() {
             <Link
               key={it.href}
               href={it.href}
-              className={`block px-3 py-2 rounded-lg text-sm ${active ? "bg-slate-100 text-brand-900 font-medium" : "hover:bg-slate-50 text-slate-700"}`}
+              className={`block px-3 py-2 rounded-lg text-sm ${
+                active ? "bg-slate-100 text-brand-900 font-medium" : "hover:bg-slate-50 text-slate-700"
+              }`}
             >
               {it.label}
             </Link>
