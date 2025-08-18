@@ -25,7 +25,7 @@ router.get("/status", async (req, res) => {
   }
 });
 
-/** POST /api/linkedin/open-login  { userId, headless?: boolean } */
+/** POST /api/linkedin/open-login  { userId, headless?: boolean }
 router.post("/open-login", async (req, res) => {
   try {
     const { userId, headless } = req.body || {};
@@ -36,6 +36,20 @@ router.post("/open-login", async (req, res) => {
   } catch (e: any) {
     console.error("open-login error:", e);
     return res.status(500).json({ error: e.message || "open-login failed" });
+  }
+}); */
+
+router.post("/open-login", async (req, res) => {
+  try {
+    const userId = String((req.body?.userId || "")).trim();
+    const headless = !!req.body?.headless;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+
+    const result = await openLinkedInLoginAndSaveSession(userId, headless);
+    res.json(result);
+  } catch (e: any) {
+    console.error("open-login error:", e);
+    res.status(500).json({ error: e.message || "open-login failed" });
   }
 });
 

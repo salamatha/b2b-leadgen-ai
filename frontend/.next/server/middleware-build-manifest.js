@@ -34,11 +34,6 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/dashboard.js"
     ],
-    "/dashboard/outreach": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/dashboard/outreach.js"
-    ],
     "/dashboard/settings": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
