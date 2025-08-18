@@ -49,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = () => {
     setToken(null, null);
     // redirect to signin from private areas
+     // always send user to Home after logout
+    window.location.href = "/"; // 👈 redirect to Home
     if (router.pathname.startsWith("/dashboard") || router.pathname === "/agents") {
       router.replace("/auth/signin");
     } else {
