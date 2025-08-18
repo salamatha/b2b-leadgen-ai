@@ -1,0 +1,1 @@
+This frontend is a placeholder. Replace with full Next.js app as needed.

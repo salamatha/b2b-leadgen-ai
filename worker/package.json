@@ -1,0 +1,24 @@
+{
+  "name": "b2b-leadgen-worker",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "ts-node src/worker.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "node-fetch": "^2.6.7",
+    "openai": "^4.0.0",
+    "playwright": "^1.54.2"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

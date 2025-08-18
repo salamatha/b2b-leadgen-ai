@@ -1,33 +1,41 @@
 {
   "name": "b2b-leadgen-ai",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "This zip contains a minimal scaffold for the B2B Lead Generation SaaS described in the project document. It includes: - frontend/ : minimal Next.js placeholders and a stub /api/chat endpoint - worker/ : Playwright worker stub that scrapes a URL and logs output - scripts/setup_db.sql : SQL to create minimal tables in Supabase - infra/ : minimal vercel.json example",
+  "main": "index.js",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/salamatha/b2b-leadgen-ai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/salamatha/b2b-leadgen-ai/issues"
+  },
+  "homepage": "https://github.com/salamatha/b2b-leadgen-ai#readme",
   "dependencies": {
-    "cheerio": "^1.1.2",
+    "@supabase/supabase-js": "^2.55.0",
+    "@types/node": "^24.3.0",
+    "autoprefixer": "^10.4.21",
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.1",
-    "langchain": "^0.3.30",
-    "next": "15.4.6",
-    "nodemailer": "^7.0.5",
-    "openai": "^5.12.2",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "playwright": "^1.54.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.12"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.4.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
   }
 }

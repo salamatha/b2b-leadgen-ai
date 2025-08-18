@@ -1,0 +1,7 @@
+// Add these imports at the top
+import profileRoutes from "./routes/profile.ts";
+import enrichmentRoutes from "./routes/enrichment.ts";
+
+// After app.use(cors()); app.use(bodyParser.json());
+app.use("/api/profile", profileRoutes);
+app.use("/api/enrichment", enrichmentRoutes);

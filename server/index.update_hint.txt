@@ -1,0 +1,14 @@
+Update server/index.ts with:
+
+import smtpRoutes from "./routes/smtp.ts";
+import outreachRoutes from "./routes/outreach.ts";
+import agentsRoutes from "./routes/agents.ts";
+import schedulesRoutes from "./routes/schedules.ts";
+import { startScheduler } from "./scheduler.ts";
+
+app.use("/api/smtp", smtpRoutes);
+app.use("/api/outreach", outreachRoutes);
+app.use("/api/agents", agentsRoutes);
+app.use("/api/schedules", schedulesRoutes);
+
+startScheduler();

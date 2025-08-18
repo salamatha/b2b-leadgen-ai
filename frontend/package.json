@@ -1,0 +1,36 @@
+{
+  "name": "b2b-leadgen-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "tailwind:init": "tailwindcss init",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "next": "^14.2.31",
+    "openai": "^4.0.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "ts-node": "^10.9.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.2"
+  },
+  "description": "Next.js frontend for b2b-leadgen-ai scaffold.",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
