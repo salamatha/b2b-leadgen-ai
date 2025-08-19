@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 function isPrivatePath(pathname: string) {
   return pathname === "/dashboard"
     || pathname.startsWith("/dashboard/")
-    || pathname === "/agents";
+    || pathname === "/lead-hunter";  // ✅ updated
 }
 
 const items = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/agents", label: "Agents" },
+  { href: "/dashboard/lead-hunter", label: "Lead Hunter" },  // ✅ updated
   { href: "/dashboard/outreach", label: "Outreach" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
@@ -47,7 +47,9 @@ export default function DashNav() {
               key={it.href}
               href={it.href}
               className={`block px-3 py-2 rounded-lg text-sm ${
-                active ? "bg-slate-100 text-brand-900 font-medium" : "hover:bg-slate-50 text-slate-700"
+                active
+                  ? "bg-slate-100 text-brand-900 font-medium"
+                  : "hover:bg-slate-50 text-slate-700"
               }`}
             >
               {it.label}
