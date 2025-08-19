@@ -2,9 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/": "pages/index.js",
-  "/dashboard/lead-hunter": "pages/dashboard/lead-hunter.js",
   "/dashboard": "pages/dashboard.js",
+  "/dashboard/lead-hunter": "pages/dashboard/lead-hunter.js",
   "/dashboard/outreach": "pages/dashboard/outreach.js",
   "/dashboard/settings": "pages/dashboard/settings.js"
 }

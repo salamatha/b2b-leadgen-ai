@@ -6,12 +6,13 @@ import authRoutes from "./routes/auth.ts";
 import linkedinRoutes from "./routes/linkedin.ts";
 import exportRoutes from "./routes/export.ts";
 import smtpRoutes from "./routes/smtp.ts";
-import agentsRoutes from "./routes/agents.ts";
 import outreachRoutes from "./routes/outreach.ts";
 import scheduleRoutes from "./routes/schedules.ts";
 import { startScheduler } from "./scheduler.ts";
 import profileRoutes from "./routes/profile.ts";
 import enrichmentRoutes from "./routes/enrichment.ts";
+import leadHunterRoutes from "./routes/leadHunter.ts";
+
 
 
 const app = express();
@@ -24,7 +25,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/linkedin", linkedinRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/smtp", smtpRoutes);
-app.use("/api/agents", agentsRoutes);
+app.use("/api/lead-hunter", leadHunterRoutes);
 
 app.use("/api/smtp", smtpRoutes);
 app.use("/api/outreach", outreachRoutes);
