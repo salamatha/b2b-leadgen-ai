@@ -1,188 +1,249 @@
-import { useEffect, useState } from "react";
+// frontend/pages/dashboard/lead-hunter.tsx
+import { useEffect, useRef, useState } from "react";
 import DashLayout from "../../components/DashLayout";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
-type HunterType = "people" | "jobs" | "posts" | "companies";
+type Msg = { role: "user" | "assistant"; text: string };
+type Plan = {
+  intent: "companies" | "people" | "jobs" | "posts";
+  query: string;
+  location?: string;
+  needDecisionMakers: boolean;
+};
+type Row = {
+  company?: string;
+  company_linkedin?: string;
+  website?: string;
+  name?: string;
+  title?: string;
+  linkedin_url?: string;
+  email?: string;
+  phone?: string;
+};
 
-export default function LeadHunter() {
+export default function LeadHunterChat() {
   const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
-  const [name, setName] = useState("");
-  const [type, setType] = useState<HunterType>("people");
-  const [keywords, setKeywords] = useState("");
-  const [location, setLocation] = useState("");
-  const [url, setUrl] = useState("");
-  const [preview, setPreview] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [agents, setAgents] = useState<any[]>([]);
-  const [agentId, setAgentId] = useState("");
+  const [messages, setMessages] = useState<Msg[]>([
+    {
+      role: "assistant",
+      text:
+        "Tell me what you’re hunting for.\nExample: “I want Liferay company in UAE with decision makers.”",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
 
-  // load saved agents
+  const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
+  const [preview, setPreview] = useState<Row[]>([]);
+  const [runningPreview, setRunningPreview] = useState(false);
+
+  const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    (async () => {
-      if (!userId) return;
-      const res = await fetch(`${API_BASE}/api/lead-hunter/list?userId=${encodeURIComponent(userId)}`);
-      const j = await res.json();
-      setAgents(j.agents || []);
-    })();
-  }, [userId]);
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  const generateUrl = async () => {
-    if (!keywords) return alert("Enter keywords");
-    setBusy(true);
+  const send = async () => {
+    if (!userId) return alert("Please sign in again");
+    const msg = input.trim();
+    if (!msg) return;
+
+    setMessages((m) => [...m, { role: "user", text: msg }]);
+    setInput("");
+    setThinking(true);
+    setPendingPlan(null);
+    setPreview([]);
+
     try {
-      const res = await fetch(`${API_BASE}/api/lead-hunter/generate-url`, {
+      const res = await fetch(`${API_BASE}/api/lead-hunter/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, keywords, location }),
+        body: JSON.stringify({ userId, messages: [...messages, { role: "user", text: msg }] }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Failed to generate");
-      setUrl(j.url);
+      if (!res.ok) throw new Error(j.error || "Chat failed");
+
+      if (j.type === "ask") {
+        setMessages((m) => [...m, { role: "assistant", text: j.message }]);
+      } else if (j.type === "confirm") {
+        setPendingPlan(j.plan);
+        setMessages((m) => [...m, { role: "assistant", text: j.summary || "Confirm?" }]);
+      } else {
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", text: "I couldn't understand. Try again." },
+        ]);
+      }
     } catch (e: any) {
-      alert(e.message || "Failed to generate");
+      setMessages((m) => [...m, { role: "assistant", text: `Error: ${e.message}` }]);
     } finally {
-      setBusy(false);
+      setThinking(false);
     }
   };
 
-  const doPreview = async () => {
-    if (!userId) return alert("Not signed in");
-    if (!keywords) return alert("Enter keywords");
-    setBusy(true);
+  const runPreview = async () => {
+    if (!userId) return alert("Please sign in again");
+    if (!pendingPlan) return;
+
+    setRunningPreview(true);
+    setPreview([]);
+
     try {
-      const res = await fetch(`${API_BASE}/api/lead-hunter/preview`, {
+      const res = await fetch(`${API_BASE}/api/lead-hunter/ai/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, type, keywords, location }),
+        body: JSON.stringify({ userId, plan: pendingPlan }),
       });
-      const j = await res.json();
+
+      const text = await res.text();
+      let j: any = {};
+      try { j = JSON.parse(text); } catch { j = { error: text }; }
+
+      if (res.status === 401 && j?.code === "LINKEDIN_SESSION_INVALID") {
+        alert("Your LinkedIn session has expired. Please reconnect it in Settings, then try again.");
+        // Optional: navigate directly to settings
+        // window.location.href = "/dashboard/settings";
+        return;
+      }
       if (!res.ok) throw new Error(j.error || "Preview failed");
-      setUrl(j.url);
-      setPreview(j.sample || []);
+
+      setPreview(j.results || []);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: `Preview ready (${(j.results || []).length} rows).` },
+      ]);
     } catch (e: any) {
-      alert(e.message || "Preview failed");
+      setMessages((m) => [...m, { role: "assistant", text: `Preview error: ${e.message}` }]);
     } finally {
-      setBusy(false);
+      setRunningPreview(false);
     }
   };
 
-  const saveAgent = async () => {
-    if (!userId) return alert("Not signed in");
-    if (!name || !keywords) return alert("Name and keywords are required");
-    setBusy(true);
+  const saveSearch = async () => {
+    if (!pendingPlan) return alert("No plan to save. Ask me for a search first.");
+    const name = prompt("Name this Lead Hunter:");
+    if (!name) return;
+
     try {
-      const res = await fetch(`${API_BASE}/api/lead-hunter/save`, {
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.text || "";
+      const res = await fetch(`${API_BASE}/api/lead-hunter/save-from-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, name, type, keywords, location }),
+        body: JSON.stringify({ userId, name, lastMessage: lastUserMsg }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Save failed");
-      setAgents((prev) => [j.agent, ...prev]);
-      setAgentId(j.agent.id);
-      alert("Saved!");
+      alert("Saved! You'll find it under your saved hunters.");
     } catch (e: any) {
-      alert(e.message || "Save failed");
-    } finally {
-      setBusy(false);
+      alert(e.message);
     }
-  };
-
-  const runNow = async () => {
-    if (!userId) return alert("Not signed in");
-    if (!agentId) return alert("Pick a saved Lead Hunter");
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/lead-hunter/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, agentId }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Run failed");
-      alert(`Run completed: inserted ${j.inserted} leads`);
-    } catch (e: any) {
-      alert(e.message || "Run failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const downloadCSV = () => {
-    if (!agentId) return alert("Pick a saved Lead Hunter");
-    const url = `${API_BASE}/api/export/leads.csv?userId=${encodeURIComponent(userId || "")}&agentId=${encodeURIComponent(agentId)}`;
-    window.open(url, "_blank");
   };
 
   return (
     <DashLayout>
-      <h1 className="text-2xl font-serif text-brand-900 mb-6">Lead Hunter</h1>
+      <h1 className="text-2xl font-serif text-brand-900 mb-4">Lead Hunter</h1>
 
-      {/* Builder */}
-      <div className="card p-5 mb-6">
-        <div className="grid md:grid-cols-4 gap-3">
-          <input className="input" placeholder="Name (e.g., SaaS Founders India)"
-                 value={name} onChange={(e)=>setName(e.target.value)} />
-          <select className="input" value={type} onChange={(e)=>setType(e.target.value as HunterType)}>
-            <option value="people">People</option>
-            <option value="jobs">Jobs</option>
-            <option value="posts">Posts</option>
-            <option value="companies">Companies</option>
-          </select>
-          <input className="input" placeholder="Keywords (e.g., SaaS founder B2B)"
-                 value={keywords} onChange={(e)=>setKeywords(e.target.value)} />
-          <input className="input" placeholder="Location (optional)"
-                 value={location} onChange={(e)=>setLocation(e.target.value)} />
+      {/* Chat card */}
+      <div className="card p-4 flex flex-col h-[70vh] mb-6">
+        <div className="flex-1 overflow-auto space-y-3">
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={`max-w-[85%] px-3 py-2 rounded-lg ${
+                m.role === "user" ? "ml-auto bg-brand-50 text-brand-900" : "bg-slate-100 text-slate-800"
+              }`}
+            >
+              {m.text}
+            </div>
+          ))}
+          {thinking && <div className="text-xs text-slate-500">Thinking…</div>}
+
+          {pendingPlan && (
+            <div className="mt-3">
+              <div className="text-sm text-slate-700">
+                <b>Plan:</b> {pendingPlan.intent} — {pendingPlan.query}
+                {pendingPlan.location ? ` @ ${pendingPlan.location}` : ""}{" "}
+                {pendingPlan.needDecisionMakers ? "(decision makers)" : ""}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button className="btn btn-primary" onClick={runPreview} disabled={runningPreview}>
+                  {runningPreview ? "Running Preview..." : "Preview"}
+                </button>
+                <button className="btn" onClick={saveSearch} disabled={runningPreview}>
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
         </div>
 
-        <div className="flex gap-3 mt-4">
-          <button className="btn" onClick={generateUrl} disabled={busy}>Generate URL</button>
-          <button className="btn btn-secondary" onClick={doPreview} disabled={busy}>Preview</button>
-          <button className="btn btn-primary" onClick={saveAgent} disabled={busy}>Save Lead Hunter</button>
+        <div className="mt-3 flex gap-2">
+          <input
+            className="input flex-1"
+            placeholder='Try: "I want Liferay company in UAE with decision makers"'
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") send(); }}
+          />
+          <button className="btn btn-primary" onClick={send} disabled={thinking}>
+            Send
+          </button>
         </div>
-
-        {url && (
-          <p className="text-xs text-slate-600 mt-3 break-all">
-            <span className="font-medium">URL:</span> {url}
-          </p>
-        )}
       </div>
 
-      {/* Saved hunters & actions */}
-      <div className="card p-5 mb-6">
-        <div className="flex items-center gap-3">
-          <select className="input max-w-xs" value={agentId} onChange={(e)=>setAgentId(e.target.value)}>
-            <option value="">Select saved Lead Hunter</option>
-            {agents.map((a)=> <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <button className="btn btn-secondary" onClick={runNow} disabled={!agentId || busy}>Run Now</button>
-          <button className="btn" onClick={downloadCSV} disabled={!agentId}>Download CSV</button>
-        </div>
-      </div>
-
-      {/* Preview results */}
+      {/* Preview below chat */}
       <div className="card p-0 overflow-auto">
+        <div className="px-4 py-3 border-b">
+          <h2 className="text-lg font-semibold">Preview</h2>
+        </div>
         <table className="table">
           <thead>
             <tr>
-              <th>Name</th><th>Title</th><th>Company</th><th>LinkedIn</th><th>Email</th><th>Phone</th>
+              <th>Company</th>
+              <th>Website</th>
+              <th>Decision Maker</th>
+              <th>Title</th>
+              <th>LinkedIn</th>
+              <th>Email</th>
+              <th>Phone</th>
             </tr>
           </thead>
           <tbody>
-            {preview.map((r, i)=>(
-              <tr key={i}>
-                <td>{r.name}</td>
-                <td>{r.title}</td>
-                <td>{r.company}</td>
-                <td><a className="text-brand-900" href={r.linkedin_url} target="_blank" rel="noreferrer">Profile</a></td>
-                <td>{r.email || ""}</td>
-                <td>{r.phone || ""}</td>
-              </tr>
-            ))}
-            {preview.length === 0 && (
-              <tr><td colSpan={6} className="p-6 text-center text-slate-500">No preview yet</td></tr>
+            {preview.length > 0 ? (
+              preview.map((r, i) => (
+                <tr key={i}>
+                  <td>
+                    <div className="font-medium">{r.company || "-"}</div>
+                    {r.company_linkedin && (
+                      <a className="text-xs text-brand-900" href={r.company_linkedin} target="_blank" rel="noreferrer">
+                        Company LI
+                      </a>
+                    )}
+                  </td>
+                  <td>
+                    {r.website ? (
+                      <a className="text-brand-900" href={r.website} target="_blank" rel="noreferrer">
+                        {r.website.replace(/^https?:\/\//, "")}
+                      </a>
+                    ) : ("-")}
+                  </td>
+                  <td>{r.name || "-"}</td>
+                  <td>{r.title || "-"}</td>
+                  <td>
+                    {r.linkedin_url ? (
+                      <a className="text-brand-900" href={r.linkedin_url} target="_blank" rel="noreferrer">
+                        Profile
+                      </a>
+                    ) : ("-")}
+                  </td>
+                  <td>{r.email || ""}</td>
+                  <td>{r.phone || ""}</td>
+                </tr>
+              ))
+            ) : (
+              <tr><td colSpan={7} className="p-6 text-center text-slate-500">No preview yet</td></tr>
             )}
           </tbody>
         </table>

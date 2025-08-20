@@ -1,128 +1,111 @@
 import express from "express";
 import { supabase } from "../db/supabase.ts";
 import { scrapeLinkedInSearch } from "../../worker/src/scrapers/linkedin.ts";
+import { huntDecisionMakers } from "../../worker/src/hunter/hunterFlow.ts";
 
 const router = express.Router();
 
-/**
- * POST /api/lead-hunter/generate-url
- * body: { type: "people"|"jobs"|"posts"|"companies", keywords: string, location?: string }
- */
-router.post("/generate-url", async (req, res) => {
+function cleanKeywords(msg: string) {
+  // remove common “command” words and trailing phrases
+  let s = msg.trim();
+  s = s.replace(/^(find|show|get|i need|i want|please find|search)\b[:\s-]*/i, "");
+  s = s.replace(/\b(with|including)\s+decision\s+makers?$/i, "").trim();
+  s = s.replace(/\s+/g, " ");
+  return s;
+}
+
+function parseMessage(message: string): { type: "companies"|"people"|"jobs"|"posts"; keywords: string; location?: string; wantDM: boolean } {
+  const msg = message.toLowerCase().trim();
+
+  // extract trailing "in <location>"
+  let location: string | undefined;
+  const m = /(.+?)\s+in\s+([a-z0-9 ,._-]+)$/i.exec(message);
+  const baseText = m ? m[1] : message;
+  if (m) location = m[2].trim();
+
+  let type: "companies"|"people"|"jobs"|"posts" = "companies";
+  if (/(people|profiles|persons|contacts)\b/.test(msg)) type = "people";
+  if (/\b(jobs?|hiring|openings)\b/.test(msg)) type = "jobs";
+  if (/\b(posts?|content)\b/.test(msg)) type = "posts";
+
+  const wantDM = /\bdecision\s+makers?\b/i.test(message);
+
+  const keywords = cleanKeywords(baseText);
+  return { type, keywords, location, wantDM };
+}
+
+function buildUrl(type: string, keywords: string, location?: string) {
+  const q = encodeURIComponent(keywords.trim());
+  const kwWithLoc = location ? encodeURIComponent(`${keywords.trim()} ${location.trim()}`) : q;
+  switch (type) {
+    case "people":    return `https://www.linkedin.com/search/results/people/?keywords=${kwWithLoc}`;
+    case "jobs":      return `https://www.linkedin.com/jobs/search/?keywords=${q}${location ? `&location=${encodeURIComponent(location.trim())}` : ""}`;
+    case "posts":     return `https://www.linkedin.com/search/results/content/?keywords=${kwWithLoc}`;
+    default:
+    case "companies": return `https://www.linkedin.com/search/results/companies/?keywords=${kwWithLoc}`;
+  }
+}
+
+router.post("/chat", async (req, res) => {
   try {
-    const { type, keywords, location } = req.body || {};
-    if (!type || !keywords) return res.status(400).json({ error: "type and keywords are required" });
+    const { userId, message } = req.body || {};
+    if (!userId || !message) return res.status(400).json({ error: "userId and message required" });
 
-    const q = encodeURIComponent(keywords.trim());
-    const loc = location ? encodeURIComponent(location.trim()) : "";
+    const parsed = parseMessage(message);
+    const url = buildUrl(parsed.type, parsed.keywords, parsed.location);
 
-    let url = "";
-    switch (type) {
-      case "people":
-        // simple people search
-        url = `https://www.linkedin.com/search/results/people/?keywords=${q}${loc ? `&origin=GLOBAL_SEARCH_HEADER&geo=${loc}` : ""}`;
-        break;
-      case "jobs":
-        url = `https://www.linkedin.com/jobs/search/?keywords=${q}${loc ? `&location=${loc}` : ""}`;
-        break;
-      case "posts":
-        url = `https://www.linkedin.com/search/results/content/?keywords=${q}`;
-        break;
-      case "companies":
-        url = `https://www.linkedin.com/search/results/companies/?keywords=${q}`;
-        break;
-      default:
-        return res.status(400).json({ error: "Unknown type" });
+    // scrape initial page with tolerant scraper
+    const baseResults = await scrapeLinkedInSearch(url, userId, true, 120000);
+
+    let enriched: any[] = [];
+    if (parsed.type === "companies" && parsed.wantDM) {
+      const companies = baseResults
+        .map(r => ({ company: r.company || r.name || "", linkedin_url: r.linkedin_url }))
+        .filter(x => x.company)
+        .slice(0, 5);
+
+      enriched = await huntDecisionMakers({
+        userId,
+        companies,
+        location: parsed.location,
+        headless: true,
+        perCompany: 5,
+      });
+    } else {
+      enriched = baseResults.slice(0, 15);
     }
-    return res.json({ url });
+
+    await supabase.from("lead_hunter_queries").insert({
+      user_id: userId,
+      message,
+      parsed: parsed as any,
+      url_used: url,
+      results_count: enriched.length,
+    });
+
+    return res.json({ parsed, url, results: enriched });
   } catch (e: any) {
-    console.error("generate-url error:", e);
-    return res.status(500).json({ error: e.message || "generate-url failed" });
+    console.error("lead-hunter/chat error:", e);
+    return res.status(500).json({ error: e.message || "chat failed" });
   }
 });
 
-/**
- * POST /api/lead-hunter/preview
- * body: { userId, type, keywords, location }
- * - builds url, scrapes a small sample (limit internally)
- */
-router.post("/preview", async (req, res) => {
+router.post("/save-from-chat", async (req, res) => {
   try {
-    const { userId, type, keywords, location } = req.body || {};
-    if (!userId || !type || !keywords) return res.status(400).json({ error: "userId, type, keywords required" });
+    const { userId, name, lastMessage } = req.body || {};
+    if (!userId || !name || !lastMessage) return res.status(400).json({ error: "userId, name, lastMessage required" });
 
-    // Generate URL first (same logic as above)
-    const q = encodeURIComponent(String(keywords).trim());
-    const loc = location ? encodeURIComponent(String(location).trim()) : "";
-    let url = "";
-    switch (type) {
-      case "people":
-        url = `https://www.linkedin.com/search/results/people/?keywords=${q}${loc ? `&origin=GLOBAL_SEARCH_HEADER&geo=${loc}` : ""}`;
-        break;
-      case "jobs":
-        url = `https://www.linkedin.com/jobs/search/?keywords=${q}${loc ? `&location=${loc}` : ""}`;
-        break;
-      case "posts":
-        url = `https://www.linkedin.com/search/results/content/?keywords=${q}`;
-        break;
-      case "companies":
-        url = `https://www.linkedin.com/search/results/companies/?keywords=${q}`;
-        break;
-      default:
-        return res.status(400).json({ error: "Unknown type" });
-    }
+    const parsed = parseMessage(lastMessage);
+    const url = buildUrl(parsed.type, parsed.keywords, parsed.location);
 
-    // scrape sample
-    const results = await scrapeLinkedInSearch(url, String(userId), true);
-    // return only first 10 to preview
-    return res.json({ url, sample: results.slice(0, 10) });
-  } catch (e: any) {
-    console.error("preview error:", e);
-    return res.status(500).json({ error: e.message || "preview failed" });
-  }
-});
-
-/**
- * POST /api/lead-hunter/save
- * body: { userId, name, type, keywords, location }
- * - generates url and saves an "agent" row (reusing your agents table)
- */
-router.post("/save", async (req, res) => {
-  try {
-    const { userId, name, type, keywords, location } = req.body || {};
-    if (!userId || !name || !type || !keywords) {
-      return res.status(400).json({ error: "userId, name, type, keywords required" });
-    }
-
-    const q = encodeURIComponent(String(keywords).trim());
-    const loc = location ? encodeURIComponent(String(location).trim()) : "";
-    let url = "";
-    switch (type) {
-      case "people":
-        url = `https://www.linkedin.com/search/results/people/?keywords=${q}${loc ? `&origin=GLOBAL_SEARCH_HEADER&geo=${loc}` : ""}`;
-        break;
-      case "jobs":
-        url = `https://www.linkedin.com/jobs/search/?keywords=${q}${loc ? `&location=${loc}` : ""}`;
-        break;
-      case "posts":
-        url = `https://www.linkedin.com/search/results/content/?keywords=${q}`;
-        break;
-      case "companies":
-        url = `https://www.linkedin.com/search/results/companies/?keywords=${q}`;
-        break;
-      default:
-        return res.status(400).json({ error: "Unknown type" });
-    }
-
-    // upsert new agent row in "agents" table
     const { data, error } = await supabase
       .from("agents")
       .insert({
         user_id: String(userId),
         name: String(name),
-        type: String(type),
+        type: String(parsed.type),
         search_url: url,
-        config: { keywords, location }, // keep original terms
+        config: { keywords: parsed.keywords, location: parsed.location, from: "chat" },
       })
       .select("*")
       .maybeSingle();
@@ -130,76 +113,8 @@ router.post("/save", async (req, res) => {
 
     return res.json({ success: true, agent: data });
   } catch (e: any) {
-    console.error("save error:", e);
-    return res.status(500).json({ error: e.message || "save failed" });
-  }
-});
-
-/**
- * GET /api/lead-hunter/list?userId=...
- */
-router.get("/list", async (req, res) => {
-  try {
-    const userId = String(req.query.userId || "");
-    if (!userId) return res.status(400).json({ error: "userId required" });
-
-    const { data, error } = await supabase
-      .from("agents")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-
-    return res.json({ agents: data || [] });
-  } catch (e: any) {
-    console.error("list error:", e);
-    return res.status(500).json({ error: e.message || "list failed" });
-  }
-});
-
-/**
- * POST /api/lead-hunter/run
- * body: { userId, agentId }
- * - scrapes with agent.search_url and inserts into "leads"
- */
-router.post("/run", async (req, res) => {
-  try {
-    const { userId, agentId } = req.body || {};
-    if (!userId || !agentId) return res.status(400).json({ error: "userId and agentId required" });
-
-    const { data: agent, error: aerr } = await supabase
-      .from("agents")
-      .select("*")
-      .eq("id", agentId)
-      .maybeSingle();
-    if (aerr) throw aerr;
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-
-    const results = await scrapeLinkedInSearch(agent.search_url, String(userId), true);
-
-    let inserted = 0;
-    for (const r of results) {
-      const { error: ierr } = await supabase
-        .from("leads")
-        .upsert(
-          {
-            user_id: String(userId),
-            agent_id: agentId,
-            name: r.name || null,
-            title: r.title || null,
-            company: r.company || null,
-            linkedin_url: r.linkedin_url || null,
-            email: r.email || null,
-            phone: r.phone || null,
-          },
-          { onConflict: "linkedin_url" }
-        );
-      if (!ierr) inserted++;
-    }
-    return res.json({ success: true, inserted });
-  } catch (e: any) {
-    console.error("run error:", e);
-    return res.status(500).json({ error: e.message || "run failed" });
+    console.error("save-from-chat error:", e);
+    return res.status(500).json({ error: e.message || "save-from-chat failed" });
   }
 });
 

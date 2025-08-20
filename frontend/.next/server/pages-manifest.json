@@ -2,8 +2,9 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/dashboard/settings": "pages/dashboard/settings.js",
   "/dashboard": "pages/dashboard.js",
   "/dashboard/lead-hunter": "pages/dashboard/lead-hunter.js",
-  "/dashboard/outreach": "pages/dashboard/outreach.js",
-  "/dashboard/settings": "pages/dashboard/settings.js"
+  "/": "pages/index.js",
+  "/auth/signin": "pages/auth/signin.js"
 }

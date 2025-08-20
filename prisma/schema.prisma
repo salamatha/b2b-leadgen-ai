@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model agents {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String?     @db.Uuid
+  name        String?
+  description String?
+  type        String?
+  config      Json?
+  created_at  DateTime?   @default(now()) @db.Timestamptz(6)
+  search_url  String?
+  updated_at  DateTime?   @default(now()) @db.Timestamptz(6)
+  schedules   schedules[]
+}
+
+model api_connections {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  provider   String?
+  config     Json?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model enrichment_credentials {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  provider   String
+  api_key    String?
+  account_id String?
+  active     Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id], map: "enrichment_credentials_user_idx")
+}
+
+model enrichment_jobs {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  agent_id   String?   @db.Uuid
+  lead_id    String?   @db.Uuid
+  search_url String?
+  status     String?   @default("pending")
+  result     Json?
+  attempts   Int?      @default(0)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model lead_hunter_queries {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String    @db.Uuid
+  message       String
+  parsed        Json?
+  url_used      String?
+  results_count Int?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model leads {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String?             @db.Uuid
+  name                String?
+  title               String?
+  company             String?
+  domain              String?
+  email               String?
+  phone               String?
+  linkedin_url        String?
+  post_or_job_content String?
+  company_details     Json?
+  source              String?
+  created_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  location            String?
+  source_type         String?
+  outreach_messages   outreach_messages[]
+}
+
+model linkedin_sessions {
+  id            Int       @id @default(autoincrement())
+  user_id       String    @unique @db.Uuid
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
+  storage_state Json
+  session_json  Json?
+}
+
+model outreach_campaigns {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  name       String
+  subject    String
+  body       String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  users      users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model outreach_messages {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  lead_id    String?   @db.Uuid
+  to_email   String
+  subject    String
+  body       String
+  status     String?   @default("queued")
+  error      String?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  leads      leads?    @relation(fields: [lead_id], references: [id], onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model profiles {
+  user_id    String    @id @db.Uuid
+  full_name  String?
+  company    String?
+  website    String?
+  timezone   String?
+  locale     String?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model runs {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String    @db.Uuid
+  agent_id    String?   @db.Uuid
+  started_at  DateTime? @default(now()) @db.Timestamptz(6)
+  finished_at DateTime? @db.Timestamptz(6)
+  status      String?   @default("queued")
+  error       String?
+}
+
+model schedules {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  agent_id    String?   @db.Uuid
+  cron_expr   String
+  last_run    DateTime? @db.Timestamptz(6)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  user_id     String?   @db.Uuid
+  cron        String?
+  active      Boolean?  @default(true)
+  last_run_at DateTime? @db.Timestamptz(6)
+  agents      agents?   @relation(fields: [agent_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model smtp_configs {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  host       String
+  port       Int
+  username   String
+  password   String
+  from_email String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  users      users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model smtp_credentials {
+  user_id    String    @id @db.Uuid
+  host       String
+  port       Int
+  secure     Boolean   @default(false)
+  username   String
+  password   String
+  from_name  String?
+  from_email String
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model users {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email               String                @unique
+  password_hash       String
+  name                String?
+  created_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  full_name           String?
+  plan_tier           String?               @default("free")
+  agent_limit         Int?                  @default(1)
+  lead_hunter_queries lead_hunter_queries[]
+  outreach_campaigns  outreach_campaigns[]
+  outreach_messages   outreach_messages[]
+  smtp_configs        smtp_configs[]
+  smtp_credentials    smtp_credentials?
+}

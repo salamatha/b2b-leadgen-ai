@@ -1,123 +1,166 @@
-import express from "express";
-import { getUserSession, saveUserSession } from "../../db/linkedinSession.ts";
-import { openLinkedInLoginAndSaveSession } from "../../worker/src/auth/linkedinLogin.ts";
-import { supabase } from "../db/supabase.ts";
-import { scrapeLinkedInSearch } from "../../worker/src/scrapers/linkedin.ts";
+// server/routes/linkedin.ts
+import express, { Router } from "express";
+import { chromium } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
+import {
+  getLinkedInSession,
+  saveLinkedInSession,
+  deleteLinkedInSession,
+} from "../../db/linkedinSession.ts";
 
-const router = express.Router();
+const router: Router = express.Router();
 
-/** GET /api/linkedin/status?userId=...  -> { connected: boolean } */
-router.get("/status", async (req, res) => {
+function isClosed(obj: { isClosed?: () => boolean } | null | undefined) {
+  try { return !!obj?.isClosed?.(); } catch { return true; }
+}
+
+/** GET /api/linkedin/session/:userId */
+router.get("/session/:userId", async (req, res) => {
   try {
-    const userId = String(req.query.userId || "");
-    if (!userId) return res.status(400).json({ error: "userId required" });
+    const state = await getLinkedInSession(req.params.userId);
+    res.json({ ok: true, exists: !!state });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "error" });
+  }
+});
 
-    const sessionStr = await getUserSession(userId);
-    if (!sessionStr) return res.json({ connected: false });
+/** PUT /api/linkedin/session/:userId  body: { storageState: PlaywrightJSON } */
+router.put("/session/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    let storageState = req.body?.storageState;
+    if (!storageState) return res.status(400).json({ ok: false, error: "storageState is required" });
 
-    let parsed: any = null;
-    try { parsed = JSON.parse(sessionStr); } catch {}
-    const ok = parsed && Array.isArray(parsed.cookies) && parsed.cookies.length > 0;
-    return res.json({ connected: !!ok });
+    if (typeof storageState === "string") {
+      try { storageState = JSON.parse(storageState); }
+      catch { return res.status(400).json({ ok: false, error: "storageState must be JSON or JSON string" }); }
+    }
+
+    await saveLinkedInSession(userId, storageState);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "error" });
+  }
+});
+
+/** DELETE /api/linkedin/session/:userId */
+router.delete("/session/:userId", async (req, res) => {
+  try {
+    await deleteLinkedInSession(req.params.userId);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || "error" });
+  }
+});
+
+/** GET /api/linkedin/status?userId=...  (validates session by loading feed) */
+router.get("/status", async (req, res) => {
+  const userId = String(req.query.userId || "");
+  if (!userId) return res.status(400).json({ error: "userId required" });
+
+  try {
+    const storageState = await getLinkedInSession(userId);
+    if (!storageState) return res.json({ connected: false, reason: "no_storage_state" });
+
+    const browser: Browser = await chromium.launch({ headless: true });
+    const context: BrowserContext = await browser.newContext({ storageState });
+
+    let connected = false;
+    let reason = "unknown";
+
+    try {
+      const page = await context.newPage();
+      page.setDefaultNavigationTimeout(30000);
+      await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded" });
+
+      const url = page.url();
+      if (url.includes("/uas/login") || url.includes("/checkpoint/")) {
+        connected = false;
+        reason = "redirected_to_login";
+      } else {
+        const ok = await page.$("header.global-nav, .scaffold-finite-scroll, [data-test-global-nav-link]");
+        connected = !!ok;
+        reason = connected ? "ok" : "no_feed_selector";
+      }
+    } catch {
+      connected = false;
+      reason = "playwright_error";
+    } finally {
+      try { await context.close(); } catch {}
+      try { await browser.close(); } catch {}
+    }
+
+    return res.json({ connected, reason });
   } catch (e: any) {
     console.error("status error:", e);
     return res.status(500).json({ error: e.message || "status failed" });
   }
 });
 
-/** POST /api/linkedin/open-login  { userId, headless?: boolean }
+/** POST /api/linkedin/open-login  body: { userId } (GUI login on host; auto-saves storageState) */
 router.post("/open-login", async (req, res) => {
-  try {
-    const { userId, headless } = req.body || {};
-    if (!userId) return res.status(400).json({ error: "userId required" });
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-    const result = await openLinkedInLoginAndSaveSession(userId, headless ?? false);
-    return res.json(result);
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
+
+  try {
+    try {
+      browser = await chromium.launch({ channel: "chrome", headless: false, args: ["--start-maximized"] });
+    } catch {
+      browser = await chromium.launch({ headless: false, args: ["--start-maximized"] });
+    }
+    context = await browser.newContext({ viewport: { width: 1366, height: 860 } });
+    page = await context.newPage();
+
+    await page.goto("https://www.linkedin.com/login", { waitUntil: "domcontentloaded" });
+
+    // Background watcher to save storageState after successful login
+    (async () => {
+      try {
+        for (let i = 0; i < 60; i++) {
+          if (isClosed(page) || isClosed(context) || isClosed(browser)) break;
+          await page!.waitForTimeout(3000);
+          if (isClosed(page) || isClosed(context) || isClosed(browser)) break;
+
+          const u = page!.url();
+          if (u.includes("/feed/") || u.includes("/mynetwork/") || u.includes("/in/")) {
+            try {
+              const storage = await context!.storageState();
+              await saveLinkedInSession(userId, storage);
+            } catch (err) {
+              console.error("open-login save session error:", err);
+            }
+            break;
+          }
+        }
+      } catch (err) {
+        console.error("open-login watcher error:", err);
+      }
+    })();
+
+    return res.json({
+      ok: true,
+      message: "If no window appears on this host, run the local login script and upload to /api/linkedin/session/:userId.",
+    });
   } catch (e: any) {
     console.error("open-login error:", e);
     return res.status(500).json({ error: e.message || "open-login failed" });
   }
-}); */
-
-router.post("/open-login", async (req, res) => {
-  try {
-    const userId = String((req.body?.userId || "")).trim();
-    const headless = !!req.body?.headless;
-    if (!userId) return res.status(400).json({ error: "userId required" });
-
-    const result = await openLinkedInLoginAndSaveSession(userId, headless);
-    res.json(result);
-  } catch (e: any) {
-    console.error("open-login error:", e);
-    res.status(500).json({ error: e.message || "open-login failed" });
-  }
 });
 
-/** POST /api/linkedin/save-session  { userId, storageStateJson }  -> manual fallback */
-router.post("/save-session", async (req, res) => {
+/** POST /api/linkedin/force-logout  body: { userId } */
+router.post("/force-logout", async (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ error: "userId required" });
   try {
-    const { userId, storageStateJson } = req.body || {};
-    if (!userId || !storageStateJson) {
-      return res.status(400).json({ error: "userId and storageStateJson required" });
-    }
-
-    // validate JSON has cookies
-    let parsed: any = null;
-    try { parsed = JSON.parse(storageStateJson); } catch {
-      return res.status(400).json({ error: "storageStateJson is not valid JSON" });
-    }
-    if (!Array.isArray(parsed.cookies) || parsed.cookies.length === 0) {
-      return res.status(400).json({ error: "No cookies found in storageStateJson" });
-    }
-
-    await saveUserSession(userId, JSON.stringify(parsed));
+    await deleteLinkedInSession(userId);
     return res.json({ ok: true });
   } catch (e: any) {
-    console.error("save-session error:", e);
-    return res.status(500).json({ error: e.message || "save-session failed" });
-  }
-});
-
-/** POST /api/linkedin/run  { agentId, userId } -> scrape and upsert leads */
-router.post("/run", async (req, res) => {
-  try {
-    const { agentId, userId } = req.body as { agentId: string; userId: string };
-    if (!agentId || !userId) return res.status(400).json({ error: "agentId and userId required" });
-
-    const { data: agent, error: aerr } = await supabase
-      .from("agents")
-      .select("*")
-      .eq("id", agentId)
-      .maybeSingle();
-    if (aerr) throw aerr;
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-
-    const results = await scrapeLinkedInSearch(agent.search_url, userId, true);
-
-    let inserted = 0;
-    for (const r of results) {
-      const { error: ierr } = await supabase
-        .from("leads")
-        .upsert(
-          {
-            user_id: userId,
-            agent_id: agentId,
-            name: r.name || null,
-            title: r.title || null,
-            company: r.company || null,
-            linkedin_url: r.linkedin_url || null,
-            email: r.email || null,
-            phone: r.phone || null,
-          },
-          { onConflict: "linkedin_url" }
-        );
-      if (!ierr) inserted++;
-    }
-
-    res.json({ success: true, inserted });
-  } catch (e: any) {
-    console.error("linkedin/run error:", e);
-    res.status(500).json({ error: e.message || "run failed" });
+    console.error("force-logout error:", e);
+    return res.status(500).json({ error: e.message || "force-logout failed" });
   }
 });
 

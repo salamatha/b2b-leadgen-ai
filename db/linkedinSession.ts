@@ -1,56 +1,34 @@
 // db/linkedinSession.ts
-import { supabase } from "../server/db/supabase.ts";
+import { prisma } from "./prisma.ts";
 
-function cleanUserId(raw: string | null): string {
-  return (raw || "").trim();
+/** Save/replace Playwright storageState JSON for a user (one row per user_id). */
+export async function saveLinkedInSession(userId: string, storageState: any) {
+  if (!userId) throw new Error("userId is required");
+  if (!storageState) throw new Error("storageState is required");
+
+  await prisma.linkedin_sessions.upsert({
+    where: { user_id: userId },
+    create: { user_id: userId, storage_state: storageState },
+    update: { storage_state: storageState, updated_at: new Date() },
+  });
 }
 
-export async function getUserSession(userIdRaw: string): Promise<string | null> {
-  const userId = cleanUserId(userIdRaw);
-  if (!userId) return null;
-
-  const { data, error } = await supabase
-    .from("linkedin_sessions")
-    .select("storage_state")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("getUserSession error:", error.message);
-    return null;
-  }
-  return data?.storage_state ? JSON.stringify(data.storage_state) : null;
+/** Get stored Playwright storageState JSON for a user. */
+export async function getLinkedInSession(userId: string): Promise<any | null> {
+  if (!userId) throw new Error("userId is required");
+  const row = await prisma.linkedin_sessions.findUnique({ where: { user_id: userId } });
+  return row?.storage_state ?? null;
 }
 
-export async function saveUserSession(userIdRaw: string, storageStateJson: string) {
-  const userId = cleanUserId(userIdRaw);
-  if (!userId) throw new Error("saveUserSession: empty userId");
-
-  const storage = JSON.parse(storageStateJson);
-
-  // Upsert on the unique key (user_id) so we UPDATE instead of INSERT a duplicate
-  const { error } = await supabase
-    .from("linkedin_sessions")
-    .upsert(
-      {
-        user_id: userId,
-        storage_state: storage,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }         // ← IMPORTANT
-    )
-    .select("user_id")
-    .maybeSingle();
-
-  if (error) {
-    console.error("saveUserSession error:", error.message);
-    throw error;
-  }
+/** Delete a user's stored session. */
+export async function deleteLinkedInSession(userId: string) {
+  if (!userId) throw new Error("userId is required");
+  await prisma.linkedin_sessions.delete({ where: { user_id: userId } }).catch(() => {});
 }
 
-export async function deleteUserSession(userIdRaw: string) {
-  const userId = cleanUserId(userIdRaw);
-  if (!userId) return;
-  const { error } = await supabase.from("linkedin_sessions").delete().eq("user_id", userId);
-  if (error) console.error("deleteUserSession error:", error.message);
-}
+/** Aliases (if older code imports these names) */
+export {
+  getLinkedInSession as getUserSession,
+  saveLinkedInSession as saveUserSession,
+  deleteLinkedInSession as deleteUserSession,
+};

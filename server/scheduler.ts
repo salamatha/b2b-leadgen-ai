@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { supabase } from "./db/supabase.ts";
 import { scrapeLinkedInSearch } from "../worker/src/scrapers/linkedin.ts";
-import { getUserSession } from "../db/linkedinSession.ts";
+import { getLinkedInSession  } from "../db/linkedinSession.ts";
 
 async function runAgentOnce(userId: string, agentId: string) {
   const { data: agent, error: aerr } = await supabase
