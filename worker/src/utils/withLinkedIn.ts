@@ -43,18 +43,24 @@ export async function runTopBarSearch(page: any, q: string, debug = false) {
   await page.keyboard.type(q, { delay: 20 });
   await page.keyboard.press("Enter");
   if (debug) console.log("[LI] search typed:", q);
-  await page.waitForSelector('[data-search-results-container], .search-results-container, .reusable-search__result-container, .search-results__list', { timeout: 15000 });
+  await page.waitForSelector(
+    '[data-search-results-container], .search-results-container, .reusable-search__result-container, .search-results__list',
+    { timeout: 15000 }
+  );
 }
 
 export async function ensureVertical(page: any, label: RegExp, debug = false) {
-  const tabs = await page.$$('a,button');
+  const tabs = await page.$$("a,button");
   for (const t of tabs) {
     const txt = (await t.innerText()).trim();
     if (label.test(txt)) {
       if (debug) console.log("[LI] click vertical:", txt);
       await t.click();
       await page.waitForTimeout(700);
-      await page.waitForSelector('[data-search-results-container], .search-results-container, .reusable-search__result-container, .search-results__list', { timeout: 15000 });
+      await page.waitForSelector(
+        '[data-search-results-container], .search-results-container, .reusable-search__result-container, .search-results__list',
+        { timeout: 15000 }
+      );
       return;
     }
   }

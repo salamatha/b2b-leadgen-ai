@@ -1,19 +1,17 @@
-// worker/src/tests/inspectSession.ts
-import { PrismaClient } from "@prisma/client";
+// worker/src/tests/pingLinkedIn.ts
 import { withLinkedIn } from "../utils/withLinkedIn.ts";
 
-const prisma = new PrismaClient();
-
 async function main() {
-  const USER_ID = "6a3c049c-0310-444f-95fa-cbdc8f44a2f9";
+  const USER_ID = "<PUT-AN-EXISTING-UUID-HERE>";
+
   await withLinkedIn(
     USER_ID,
     async (page) => {
-      console.log("Final URL:", page.url());
-      if (/login|checkpoint/i.test(page.url())) {
-        throw new Error("Session invalid after normalization");
-      }
-      console.log("✅ LinkedIn session restored and valid");
+      await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded" });
+      const url = page.url();
+      console.log("Final URL:", url);
+      if (/login|checkpoint/i.test(url)) throw new Error("Session invalid: redirected");
+      console.log("✅ LinkedIn session restored from DB and valid");
     },
     { debug: true }
   );

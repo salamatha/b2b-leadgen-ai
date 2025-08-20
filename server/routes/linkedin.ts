@@ -53,7 +53,7 @@ router.delete("/session/:userId", async (req, res) => {
   }
 });
 
-/** GET /api/linkedin/status?userId=...  (validates session by loading feed) */
+/** GET /api/linkedin/status?userId=... (validates by loading feed) */
 router.get("/status", async (req, res) => {
   const userId = String(req.query.userId || "");
   if (!userId) return res.status(400).json({ error: "userId required" });

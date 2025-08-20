@@ -26,7 +26,7 @@ export async function deleteLinkedInSession(userId: string) {
   await prisma.linkedin_sessions.delete({ where: { user_id: userId } }).catch(() => {});
 }
 
-/** Aliases (if older code imports these names) */
+/** Back-compat aliases if older code imports these names */
 export {
   getLinkedInSession as getUserSession,
   saveLinkedInSession as saveUserSession,

@@ -65,33 +65,29 @@ model lead_hunter_queries {
   users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model leads {
-  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id             String?             @db.Uuid
-  name                String?
-  title               String?
-  company             String?
-  domain              String?
-  email               String?
-  phone               String?
-  linkedin_url        String?
-  post_or_job_content String?
-  company_details     Json?
-  source              String?
-  created_at          DateTime?           @default(now()) @db.Timestamptz(6)
-  location            String?
-  source_type         String?
-  outreach_messages   outreach_messages[]
+  id            Int      @id @default(autoincrement())
+  user_id       String   @db.Uuid
+  type          String // "company" | "person"
+  name          String
+  title         String?
+  company       String?
+  linkedin_url  String   @unique
+  website       String?
+  location      String?
+  size_min      Int?
+  size_max      Int?
+  source_run_id Int?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now())
 }
 
 model linkedin_sessions {
-  id            Int       @id @default(autoincrement())
-  user_id       String    @unique @db.Uuid
-  created_at    DateTime? @default(now()) @db.Timestamp(6)
-  updated_at    DateTime? @default(now()) @db.Timestamp(6)
+  id            Int      @id @default(autoincrement())
+  user_id       String   @unique @db.Uuid
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now())
   storage_state Json
-  session_json  Json?
 }
 
 model outreach_campaigns {
@@ -104,19 +100,28 @@ model outreach_campaigns {
   users      users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model outreach_messages {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String    @db.Uuid
-  lead_id    String?   @db.Uuid
-  to_email   String
-  subject    String
-  body       String
-  status     String?   @default("queued")
-  error      String?
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
-  leads      leads?    @relation(fields: [lead_id], references: [id], onUpdate: NoAction)
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id          Int       @id @default(autoincrement())
+  user_id     String    @db.Uuid
+  lead_id     Int?
+  channel     String // "email" | "linkedin"
+  template_id Int?
+  subject     String?
+  body        String
+  status      String // "draft" | "scheduled" | "sent" | "failed"
+  send_at     DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @default(now())
+
+  // 🔗 Relation back to users (this is what Prisma needs)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // (Optional) other relations you may already have:
+  // lead        leads?   @relation(fields: [lead_id], references: [id])
+  // template    templates? @relation(fields: [template_id], references: [id])
+
+  @@index([user_id])
+  @@map("outreach_messages") // keep if you already map to a specific table name
 }
 
 model profiles {
@@ -130,15 +135,27 @@ model profiles {
   updated_at DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model templates {
+  id         Int      @id @default(autoincrement())
+  user_id    String   @db.Uuid
+  name       String
+  channel    String // "email" | "linkedin"
+  subject    String?
+  body       String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+}
+
 model runs {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id     String    @db.Uuid
-  agent_id    String?   @db.Uuid
-  started_at  DateTime? @default(now()) @db.Timestamptz(6)
-  finished_at DateTime? @db.Timestamptz(6)
-  status      String?   @default("queued")
-  error       String?
+  id          Int      @id @default(autoincrement())
+  user_id     String   @db.Uuid
+  type        String // "lead_hunt"
+  query       String
+  status      String // "pending" | "running" | "succeeded" | "failed"
+  params_json Json?    @db.JsonB
+  error_json  Json?    @db.JsonB
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
 }
 
 model schedules {

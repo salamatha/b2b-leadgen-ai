@@ -1,56 +1,42 @@
 import express from "express";
 import { supabase } from "../db/supabase.ts";
 import { scrapeLinkedInSearch } from "../../worker/src/scrapers/linkedin.ts";
-import { huntDecisionMakers } from "../../worker/src/hunter/hunterFlow.ts";
+import { huntCompaniesPeopleProfiles } from "../../worker/src/hunter/chainHunter.ts";
 
 const router = express.Router();
 
-/** Lightweight rule-based parser (you can swap with LLM later) */
-function parseMessage(message: string): { type: "companies"|"people"|"jobs"|"posts"; keywords: string; location?: string } {
-  const msg = message.toLowerCase().trim();
+function cleanStart(msg: string) {
+  return msg.replace(/^(find|show|get|i need|i want|please find|search)\b[:\s-]*/i, "").trim();
+}
+function parseMessage(message: string): { intent: "companies"|"people"|"jobs"|"posts"; query: string; location?: string; needDM: boolean } {
+  const trimmed = cleanStart(message);
+  const m = /(.+?)\s+in\s+([a-z0-9 ,._-]+)$/i.exec(trimmed);
+  const base = m ? m[1] : trimmed;
+  const location = m ? m[2].trim() : undefined;
 
-  // try to extract “… in <location>”
-  let location: string | undefined;
-  const inIdx = msg.lastIndexOf(" in ");
-  if (inIdx > -1) {
-    location = message.slice(inIdx + 4).trim();
-  }
+  const low = base.toLowerCase();
+  let intent: "companies"|"people"|"jobs"|"posts" = "companies";
+  if (/(people|profiles|contacts)\b/.test(low)) intent = "people";
+  else if (/\b(jobs?|hiring|openings)\b/.test(low)) intent = "jobs";
+  else if (/\b(posts?|content)\b/.test(low)) intent = "posts";
 
-  // default intents
-  let type: "companies"|"people"|"jobs"|"posts" = "companies";
+  const needDM = /\bdecision\s+makers?\b/i.test(message) || /founders?|ceo|director|head\b/i.test(low);
 
-  if (/(people|profiles|persons|contacts)\b/.test(msg)) type = "people";
-  if (/\b(jobs?|hiring|openings)\b/.test(msg)) type = "jobs";
-  if (/\b(posts?|content)\b/.test(msg)) type = "posts";
-
-  // keywords = message minus "in <location>" tail
-  const keywords = inIdx > -1 ? message.slice(0, inIdx).trim() : message.trim();
-  return { type, keywords, location };
+  return { intent, query: base.trim(), location, needDM };
 }
 
-/** Build safe starter LinkedIn URLs (keep it simple & robust) */
-function buildUrl(type: string, keywords: string, location?: string) {
-  const q = encodeURIComponent(keywords.trim());
-  const kwWithLoc = location ? encodeURIComponent(`${keywords.trim()} ${location.trim()}`) : q;
-
-  switch (type) {
-    case "people":
-      return `https://www.linkedin.com/search/results/people/?keywords=${kwWithLoc}`;
-    case "jobs":
-      return `https://www.linkedin.com/jobs/search/?keywords=${q}${location ? `&location=${encodeURIComponent(location.trim())}` : ""}`;
-    case "posts":
-      return `https://www.linkedin.com/search/results/content/?keywords=${kwWithLoc}`;
+function buildUrl(intent: string, query: string, location?: string) {
+  const q = encodeURIComponent(query);
+  const qLoc = location ? encodeURIComponent(`${query} ${location}`) : q;
+  switch (intent) {
+    case "people": return `https://www.linkedin.com/search/results/people/?keywords=${qLoc}`;
+    case "jobs":   return `https://www.linkedin.com/jobs/search/?keywords=${q}${location ? `&location=${encodeURIComponent(location)}` : ""}`;
+    case "posts":  return `https://www.linkedin.com/search/results/content/?keywords=${qLoc}`;
     default:
-    case "companies":
-      return `https://www.linkedin.com/search/results/companies/?keywords=${kwWithLoc}`;
+    case "companies": return `https://www.linkedin.com/search/results/companies/?keywords=${qLoc}`;
   }
 }
 
-/**
- * POST /api/lead-hunter/chat
- * body: { userId: string, message: string, sessionId?: string }
- * - Parses message -> gets companies (or people) -> for companies, finds decision makers.
- */
 router.post("/chat", async (req, res) => {
   try {
     const { userId, message } = req.body || {};
@@ -58,74 +44,67 @@ router.post("/chat", async (req, res) => {
 
     const parsed = parseMessage(message);
 
-    // Step 1: scrape initial results
-    const url = buildUrl(parsed.type, parsed.keywords, parsed.location);
-    const baseResults = await scrapeLinkedInSearch(url, userId, true, 120000);
-
-    // Step 2: if companies → look for decision makers for top matches
-    let enriched: any[] = [];
-    if (parsed.type === "companies") {
-      // take first 5 companies to keep fast
-      const companies = baseResults
-        .map(r => ({ company: r.company || r.name || "", linkedin_url: r.linkedin_url }))
-        .filter(x => x.company)
-        .slice(0, 5);
-
-      enriched = await huntDecisionMakers({
+    // If decision makers requested -> run 3-step flow
+    if (parsed.intent === "companies" && parsed.needDM) {
+      const enriched = await huntCompaniesPeopleProfiles({
         userId,
-        companies,
+        query: parsed.query,
         location: parsed.location,
+        companiesLimit: 5,
+        peoplePerCompany: 5,
         headless: true,
-        perCompany: 5, // how many people to fetch per company
       });
-    } else if (parsed.type === "people") {
-      // return people as-is (you can also enrich by visiting each profile)
-      enriched = baseResults.slice(0, 15);
-    } else {
-      enriched = baseResults.slice(0, 15);
+
+      await supabase.from("lead_hunter_queries").insert({
+        user_id: userId,
+        message,
+        parsed: parsed as any,
+        url_used: null,
+        results_count: enriched.length,
+      });
+
+      return res.json({
+        parsed,
+        url: null,
+        results: enriched,
+      });
     }
 
-    // optional: persist last chat query (for drafts/history)
+    // Otherwise fall back to single-hop search preview
+    const url = buildUrl(parsed.intent, parsed.query, parsed.location);
+    const sample = await scrapeLinkedInSearch(url, userId, true, 120000);
+
     await supabase.from("lead_hunter_queries").insert({
       user_id: userId,
       message,
       parsed: parsed as any,
       url_used: url,
-      results_count: enriched.length
+      results_count: sample.length,
     });
 
-    return res.json({
-      parsed,
-      url,
-      results: enriched,
-    });
+    return res.json({ parsed, url, results: sample.slice(0, 15) });
   } catch (e: any) {
     console.error("lead-hunter/chat error:", e);
     return res.status(500).json({ error: e.message || "chat failed" });
   }
 });
 
-/**
- * POST /api/lead-hunter/save-from-chat
- * body: { userId, name, lastMessage }
- * - parses message again, generates URL, saves in agents (Lead Hunter)
- */
 router.post("/save-from-chat", async (req, res) => {
   try {
     const { userId, name, lastMessage } = req.body || {};
     if (!userId || !name || !lastMessage) return res.status(400).json({ error: "userId, name, lastMessage required" });
 
     const parsed = parseMessage(lastMessage);
-    const url = buildUrl(parsed.type, parsed.keywords, parsed.location);
+    const url = buildUrl(parsed.intent, parsed.query, parsed.location);
 
     const { data, error } = await supabase
       .from("agents")
       .insert({
         user_id: String(userId),
         name: String(name),
-        type: String(parsed.type),
+        type: String(parsed.intent),
         search_url: url,
-        config: { keywords: parsed.keywords, location: parsed.location, from: "chat" },
+        config: { query: parsed.query, location: parsed.location, from: "chat" },
       })
       .select("*")
       .maybeSingle();
