@@ -56,14 +56,46 @@ export default function LeadHunterChat() {
     setPreview([]);
 
     try {
+      // ✅ Send a single message string that the backend expects
       const res = await fetch(`${API_BASE}/api/lead-hunter/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, messages: [...messages, { role: "user", text: msg }] }),
+        body: JSON.stringify({ userId, message: msg }),
       });
-      const j = await res.json();
+
+      const text = await res.text();
+      let j: any = {};
+      try { j = JSON.parse(text); } catch { j = { error: text }; }
+
       if (!res.ok) throw new Error(j.error || "Chat failed");
 
+      // New backend shape: { parsed, url, results }
+      if (j?.parsed) {
+        const parsed = j.parsed as {
+          type: "companies" | "people" | "jobs" | "posts";
+          keywords: string;
+          location?: string;
+          wantDM: boolean;
+        };
+
+        const plan: Plan = {
+          intent: parsed.type === "people" ? "people" : parsed.type === "jobs" ? "jobs" : parsed.type === "posts" ? "posts" : "companies",
+          query: parsed.keywords || "",
+          location: parsed.location || undefined,
+          needDecisionMakers: !!parsed.wantDM,
+        };
+        setPendingPlan(plan);
+
+        const locLabel = plan.location ? ` @ ${plan.location}` : "";
+        const dmLabel = plan.needDecisionMakers ? " (decision makers)" : "";
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", text: `Got it → ${plan.intent}: ${plan.query}${locLabel}${dmLabel}\nClick Preview to continue.` },
+        ]);
+        return;
+      }
+
+      // Legacy shape compatibility (if you keep returning { type: "ask" | "confirm" } somewhere)
       if (j.type === "ask") {
         setMessages((m) => [...m, { role: "assistant", text: j.message }]);
       } else if (j.type === "confirm") {
@@ -90,10 +122,16 @@ export default function LeadHunterChat() {
     setPreview([]);
 
     try {
+      // Backend /preview expects: { userId, mode, filtersOrQuery: { keywords } } or { userId, message }
+      const mode = pendingPlan.intent === "people" ? "people" : "companies"; // (extend to jobs/posts later)
+      const keywords = pendingPlan.location
+        ? `${pendingPlan.query} ${pendingPlan.location}`
+        : pendingPlan.query;
+
       const res = await fetch(`${API_BASE}/api/lead-hunter/ai/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, plan: pendingPlan }),
+        body: JSON.stringify({ userId, mode, filtersOrQuery: { keywords } }),
       });
 
       const text = await res.text();
@@ -102,17 +140,21 @@ export default function LeadHunterChat() {
 
       if (res.status === 401 && j?.code === "LINKEDIN_SESSION_INVALID") {
         alert("Your LinkedIn session has expired. Please reconnect it in Settings, then try again.");
-        // Optional: navigate directly to settings
-        // window.location.href = "/dashboard/settings";
         return;
       }
       if (!res.ok) throw new Error(j.error || "Preview failed");
 
-      setPreview(j.results || []);
+      // New preview shape: { ok, mode, preview: { finalUrl, title, countHint } }
+      const pv = j.preview || {};
+      const link = pv.finalUrl ? `\n${pv.finalUrl}` : "";
+      const count = typeof pv.countHint === "number" ? ` (count≈${pv.countHint})` : "";
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: `Preview ready (${(j.results || []).length} rows).` },
+        { role: "assistant", text: `Preview ready for ${mode}${count}.${link}` },
       ]);
+
+      // We don't have row extraction yet; keep table empty for now.
+      setPreview([]);
     } catch (e: any) {
       setMessages((m) => [...m, { role: "assistant", text: `Preview error: ${e.message}` }]);
     } finally {

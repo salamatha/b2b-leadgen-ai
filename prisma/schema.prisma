@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model agents {
@@ -84,11 +85,12 @@ model leads {
 
 model linkedin_sessions {
   id            Int      @id @default(autoincrement())
-  user_id       String   @unique @db.Uuid
+  user_id       String   @unique @db.Uuid   // <- not @id, just unique
   created_at    DateTime @default(now())
   updated_at    DateTime @default(now())
   storage_state Json
 }
+
 
 model outreach_campaigns {
   id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid

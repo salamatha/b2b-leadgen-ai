@@ -1,8 +1,7 @@
-// server/index.ts
+// server/index.ts (only the middleware section)
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import bodyParser from "body-parser";
 
 import authRoutes from "./routes/auth.ts";
 import linkedinRoutes from "./routes/linkedin.ts";
@@ -15,25 +14,34 @@ import enrichmentRoutes from "./routes/enrichment.ts";
 import leadHunterRoutes from "./routes/leadHunter.ts";
 import leadHunterChatRoutes from "./routes/leadHunterChat.ts";
 import leadHunterAIRoutes from "./routes/leadHunterAI.ts";
-import { startScheduler } from "./scheduler.ts";
 
 const app = express();
-const PORT = Number(process.env.PORT) || 4000;
+const PORT = process.env.PORT || 4000;
 
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN?.split(",").map(s => s.trim()) || "*",
-    credentials: true,
-  })
-);
-app.use(bodyParser.json({ limit: "2mb" }));
-app.use(express.json({ limit: "2mb" }));
+app.use(cors());
 
-// Health + root
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
-app.get("/", (_req, res) => res.send("Server up"));
+// Parse JSON (also accept text/plain JSON bodies some clients send)
+app.use(express.json({ type: ["application/json", "text/plain"], limit: "1mb" }));
+// Parse form bodies just in case a client sends x-www-form-urlencoded
+app.use(express.urlencoded({ extended: true }));
 
-// ROUTES (note: no duplicate mounts)
+// 🔍 Log incoming requests (method, path, content-type, body)
+app.use((req, _res, next) => {
+  try {
+    console.log(
+      `[REQ] ${req.method} ${req.originalUrl} :: ${req.headers["content-type"] || ""}\n`,
+      // Avoid dumping huge bodies
+      typeof req.body === "string" ? req.body.slice(0, 500) : JSON.stringify(req.body).slice(0, 500)
+    );
+  } catch {}
+  // If body came as a raw JSON string, try to parse it
+  if (typeof req.body === "string") {
+    try { req.body = JSON.parse(req.body); } catch {}
+  }
+  next();
+});
+
+// routes
 app.use("/api/auth", authRoutes);
 app.use("/api/linkedin", linkedinRoutes);
 app.use("/api/export", exportRoutes);
@@ -43,37 +51,12 @@ app.use("/api/schedules", scheduleRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/enrichment", enrichmentRoutes);
 
-// Lead Hunter family
+// Lead Hunter routes
 app.use("/api/lead-hunter", leadHunterRoutes);
 app.use("/api/lead-hunter", leadHunterChatRoutes);
 app.use("/api/lead-hunter", leadHunterAIRoutes);
 
-// Simple request logger (helps confirm the exact path/method)
-app.use((req, _res, next) => {
-  if (req.path.startsWith("/api/")) {
-    console.log("API HIT:", req.method, req.path);
-  }
-  next();
-});
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/", (_req, res) => res.send("Server up"));
 
-// 404 for API
-app.use((req, res, next) => {
-  if (req.path.startsWith("/api/")) return res.status(404).json({ ok: false, error: "Not Found" });
-  next();
-});
-
-// Error handler
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ ok: false, error: err?.message || "Internal Server Error" });
-});
-
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Backend running at http://localhost:${PORT}`);
-  try { startScheduler(); } catch (e) { console.error("Scheduler start failed:", e); }
-});
-
-process.on("SIGINT", () => {
-  console.log("Shutting down…");
-  server.close(() => process.exit(0));
-});
+app.listen(PORT, () => console.log(`🚀 Backend running at http://localhost:${PORT}`));

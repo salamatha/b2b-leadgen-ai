@@ -1,34 +1,44 @@
 // db/linkedinSession.ts
 import { prisma } from "./prisma.ts";
 
-/** Save/replace Playwright storageState JSON for a user (one row per user_id). */
-export async function saveLinkedInSession(userId: string, storageState: any) {
-  if (!userId) throw new Error("userId is required");
-  if (!storageState) throw new Error("storageState is required");
+type Cookie = {
+  name: string; value: string; domain: string; path: string;
+  expires?: number; httpOnly?: boolean; secure?: boolean;
+  sameSite?: "Lax" | "None" | "Strict";
+};
+type StorageState = { cookies?: Cookie[]; origins?: any[] };
 
+function hasLiAt(state?: StorageState | null) {
+  const li = state?.cookies?.find(c => c.name === "li_at");
+  return !!(li && li.value && li.domain?.includes("linkedin.com"));
+}
+
+export async function getLinkedInSession(userId: string): Promise<StorageState | null> {
+  // Your table columns (from your message):
+  // id, user_id, created_at, updated_at, storage_state (Json)
+  const row = await prisma.linkedin_sessions.findUnique({
+    where: { user_id: userId },
+    select: { storage_state: true }, // <-- only storage_state exists
+  });
+
+  const state = (row?.storage_state as any) ?? null;
+  if (!state || !Array.isArray(state.cookies)) return null;
+  return hasLiAt(state) ? state : null;
+}
+
+export async function saveLinkedInSession(userId: string, state: StorageState) {
   await prisma.linkedin_sessions.upsert({
     where: { user_id: userId },
-    create: { user_id: userId, storage_state: storageState },
-    update: { storage_state: storageState, updated_at: new Date() },
+    update: { storage_state: state, updated_at: new Date() as any },
+    create: {
+      user_id: userId,
+      storage_state: state,
+      created_at: new Date() as any,
+      updated_at: new Date() as any,
+    },
   });
 }
 
-/** Get stored Playwright storageState JSON for a user. */
-export async function getLinkedInSession(userId: string): Promise<any | null> {
-  if (!userId) throw new Error("userId is required");
-  const row = await prisma.linkedin_sessions.findUnique({ where: { user_id: userId } });
-  return row?.storage_state ?? null;
-}
-
-/** Delete a user's stored session. */
 export async function deleteLinkedInSession(userId: string) {
-  if (!userId) throw new Error("userId is required");
   await prisma.linkedin_sessions.delete({ where: { user_id: userId } }).catch(() => {});
 }
-
-/** Back-compat aliases if older code imports these names */
-export {
-  getLinkedInSession as getUserSession,
-  saveLinkedInSession as saveUserSession,
-  deleteLinkedInSession as deleteUserSession,
-};
